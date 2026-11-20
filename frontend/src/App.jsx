@@ -109,9 +109,9 @@ function Ledger({ onLogout }) {
   };
 
   return (
-    <div className="min-h-screen bg-ink-900">
-      <header className="border-b border-ink-600/40">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 sm:py-6">
+    <div className="ambient-bg min-h-screen">
+      <header className="border-b border-ink-600/30 bg-ink-900/30 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 sm:py-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h1 className="font-display text-lg sm:text-3xl font-semibold text-paper tracking-tight leading-tight">
@@ -145,7 +145,7 @@ function Ledger({ onLogout }) {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-6 space-y-5">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-5">
         {err && (
           <div className="bg-rust/10 border border-rust/30 text-rust text-sm font-body px-4 py-3 rounded-md">{err}</div>
         )}
