@@ -101,24 +101,45 @@ await safely("viewer seed", async () => {
   if (existing.rows.length === 0) {
     await db.execute({
       sql: `INSERT OR IGNORE INTO users
-            (username, password_hash, role)
-            VALUES (?, ?, 'viewer')`,
+        (username, password_hash, role)
+        VALUES (?, ?, 'viewer')`,
       args: ["viewer", bcrypt.hashSync("viewer123", 10)],
     });
-
-    console.log('Seeded read-only login -> username: "viewer" password: "viewer123"');
   }
 
-  // Viewer permissions: read-only, no phone numbers
+  // Ensure viewer role
   await db.execute({
-    sql: `UPDATE users SET role = 'viewer' WHERE username = ?`,
+    sql: "UPDATE users SET role = 'viewer' WHERE username = ?",
     args: ["viewer"],
   });
 
-  console.log("Viewer permissions: READ ONLY");
-  console.log("phone: HIDDEN");
-  console.log("Create / Update / Delete: DISABLED");
+  console.log("Viewer account ready.");
+  console.log("Read-only access enabled.");
+  console.log("Phone numbers must be hidden in API responses.");
 });
+
+// Remove phone numbers from Viewer API response data
+function hideViewerPhoneNumbers(user, data) {
+  if (user?.role !== "viewer") return data;
+
+  if (Array.isArray(data)) {
+    return data.map(item => hideViewerPhoneNumbers(user, item));
+  }
+
+  if (data && typeof data === "object") {
+    const safeData = {};
+
+    for (const [key, value] of Object.entries(data)) {
+      if (/phone|mobile|contact_number/i.test(key)) continue;
+
+      safeData[key] = hideViewerPhoneNumbers(user, value);
+    }
+
+    return safeData;
+  }
+
+  return data;
+}
 
 
 export default db;
