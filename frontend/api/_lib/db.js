@@ -12,8 +12,22 @@ const authToken = process.env.TURSO_AUTH_TOKEN;
 
 const db = createClient(authToken ? { url, authToken } : { url });
 
+// Startup maintenance (schema, migration, seeding) must NEVER be able to take
+// the whole API down. When several serverless instances cold-start at the same
+// moment they all run this code at once and can collide (e.g. "duplicate column"
+// or "UNIQUE constraint failed"). Every step below is therefore idempotent and
+// wrapped, so a collision is logged and skipped instead of crashing every request.
+async function safely(label, fn) {
+  try {
+    await fn();
+  } catch (e) {
+    console.error(`[startup] ${label} skipped:`, e.message);
+  }
+}
+
 // ---------- SCHEMA (raw SQL) ----------
-await db.executeMultiple(`
+await safely("schema", () =>
+  db.executeMultiple(`
 CREATE TABLE IF NOT EXISTS tenants (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT NOT NULL,
@@ -47,41 +61,64 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
-`);
+`)
+);
 
-// Migration: add the "role" column for databases created before read-only
-// accounts existed. Ignored if it's already there (re-running is safe).
-try {
-  await db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
-} catch (e) {
-  if (!/duplicate column/i.test(e.message)) throw e;
-}
+// ---------- MIGRATION: "role" column ----------
+// Adds the column for databases created before read-only accounts existed.
+// Checks for the column directly rather than parsing an error message.
+await safely("role-column migration", async () => {
+  const columns = await db.execute("PRAGMA table_info(users)");
+  const hasRole = columns.rows.some((c) => c.name === "role");
+  if (!hasRole) {
+    await db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
+    console.log('Migration: added "role" column to users table');
+  }
+});
 
-// Seed the default admin on first run.
-const userCountResult = await db.execute("SELECT COUNT(*) AS n FROM users");
-const userCount = Number(userCountResult.rows[0].n);
-if (userCount === 0) {
-  const hash = bcrypt.hashSync("admin123", 10);
-  await db.execute({
-    sql: "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
-    args: ["admin", hash],
+// ---------- SEED: default accounts ----------
+// INSERT OR IGNORE makes these safe to run any number of times, even
+// simultaneously from several instances: the UNIQUE(username) constraint
+// guarantees at most one row per account.
+await safely("admin seed", async () => {
+  const { rows } = await db.execute("SELECT COUNT(*) AS n FROM users");
+  if (Number(rows[0].n) === 0) {
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+      args: ["admin", bcrypt.hashSync("admin123", 10)],
+    });
+    console.log('Seeded default login -> username: "admin"  password: "admin123" (please change this)');
+  }
+});
+
+
+await safely("viewer seed", async () => {
+  const existing = await db.execute({
+    sql: "SELECT id FROM users WHERE username = ?",
+    args: ["viewer"],
   });
-  console.log('Seeded default login -> username: "Admin"  password: "admin@123" ');
-  
-}
 
-// Seed a read-only account, if it doesn't exist yet — separately from the
-// admin seed above, so it also gets created for databases that already had
-// an admin user before this feature existed.
-const viewerExists = await db.execute("SELECT id FROM users WHERE username = ?", ["viewer"]);
-if (viewerExists.rows.length === 0) {
-  const hash = bcrypt.hashSync("viewer123", 10);
+  if (existing.rows.length === 0) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO users
+            (username, password_hash, role)
+            VALUES (?, ?, 'viewer')`,
+      args: ["viewer", bcrypt.hashSync("viewer123", 10)],
+    });
+
+    console.log('Seeded read-only login -> username: "viewer" password: "viewer123"');
+  }
+
+  // Viewer permissions: read-only, no phone numbers
   await db.execute({
-    sql: "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'viewer')",
-    args: ["viewer", hash],
+    sql: `UPDATE users SET role = 'viewer' WHERE username = ?`,
+    args: ["viewer"],
   });
-  console.log('Seeded read-only login -> username: "admin"  password: "admin123" ');
-  
-}
+
+  console.log("Viewer permissions: READ ONLY");
+  console.log("phone: HIDDEN");
+  console.log("Create / Update / Delete: DISABLED");
+});
+
 
 export default db;
