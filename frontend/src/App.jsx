@@ -125,7 +125,7 @@ function Ledger({ onLogout }) {
               <span className="hidden md:inline text-paper/60 text-xs font-body">{auth.getUsername()}</span>
               {!canWrite && (
                 <span className="text-[11px] font-semibold px-2 py-1 rounded bg-brass/15 text-brass-light whitespace-nowrap">
-                  Viewers
+                  Tenants
                 </span>
               )}
               {/* Read-only accounts can't change their password (the server refuses it too). */}
