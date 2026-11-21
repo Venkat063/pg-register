@@ -41,6 +41,12 @@ app.post("/api/auth/login", async (req, res) => {
 // Everything below this line requires a valid login.
 app.use("/api", authMiddleware);
 
+// Read-only ("viewer") accounts can see the ledger but not tenants' phone
+// numbers. This is enforced HERE, on the server, so the numbers are never sent
+// to a viewer's browser at all (hiding them only in the UI would still leak
+// them in the network response).
+const isViewer = (req) => req.user?.role === "viewer";
+
 // Password changes are allowed for any logged-in account, including
 // read-only ones — that's an account-security action, not a data write.
 app.put("/api/auth/password", async (req, res) => {
@@ -99,13 +105,13 @@ async function currentPaymentFor(tenantId) {
   return get(`SELECT * FROM payments WHERE tenant_id = ? ORDER BY due_date DESC LIMIT 1`, [tenantId]);
 }
 
-async function serializeTenant(tenant) {
+async function serializeTenant(tenant, { hidePhone = false } = {}) {
   const payment = await currentPaymentFor(tenant.id);
   const status = payment ? computeStatus(payment) : "pending";
   return {
     id: tenant.id,
     name: tenant.name,
-    phone: tenant.phone,
+    phone: hidePhone ? null : tenant.phone,
     room_no: tenant.room_no,
     joining_date: tenant.joining_date,
     rent_amount: tenant.rent_amount,
@@ -134,16 +140,21 @@ async function serializeTenant(tenant) {
 app.get("/api/tenants", async (req, res) => {
   await ensureAllCyclesIfNeeded();
   const { status, search, upcomingDays, room } = req.query;
+  const hidePhone = isViewer(req);
 
   const tenantRows = await all("SELECT * FROM tenants WHERE is_active = 1 ORDER BY room_no COLLATE NOCASE, name COLLATE NOCASE");
-  let tenants = await Promise.all(tenantRows.map(serializeTenant));
+  // NOTE: arrow function on purpose — passing serializeTenant straight to map()
+  // would hand it the array index as its second argument.
+  let tenants = await Promise.all(tenantRows.map((t) => serializeTenant(t, { hidePhone })));
 
   if (search) {
     const s = search.toLowerCase();
+    // Viewers can't search by phone either — otherwise they could discover a
+    // number by typing digits and watching which tenants stay in the list.
     tenants = tenants.filter(
       (t) =>
         t.name.toLowerCase().includes(s) ||
-        (t.phone || "").toLowerCase().includes(s) ||
+        (!hidePhone && (t.phone || "").toLowerCase().includes(s)) ||
         t.room_no.toLowerCase().includes(s)
     );
   }
@@ -279,6 +290,7 @@ app.post("/api/payments/:paymentId/pay", requireWrite, async (req, res) => {
   res.json(await serializeTenant(await get("SELECT * FROM tenants WHERE id = ?", [payment.tenant_id])));
 });
 
+// Payment history rows only (no tenant contact details), so safe for viewers.
 app.get("/api/tenants/:id/history", async (req, res) => {
   const rows = await all("SELECT * FROM payments WHERE tenant_id = ? ORDER BY due_date DESC", [req.params.id]);
   res.json(rows.map((p) => ({ ...p, status: computeStatus(p) })));
@@ -290,7 +302,7 @@ app.get("/api/tenants/:id/history", async (req, res) => {
 app.get("/api/dashboard", async (req, res) => {
   await ensureAllCyclesIfNeeded();
   const tenantRows = await all("SELECT * FROM tenants WHERE is_active = 1");
-  const tenants = await Promise.all(tenantRows.map(serializeTenant));
+  const tenants = await Promise.all(tenantRows.map((t) => serializeTenant(t, { hidePhone: true })));
 
   const summary = {
     total_tenants: tenants.length,
