@@ -47,9 +47,13 @@ app.use("/api", authMiddleware);
 // them in the network response).
 const isViewer = (req) => req.user?.role === "viewer";
 
-// Password changes are allowed for any logged-in account, including
-// read-only ones — that's an account-security action, not a data write.
+// Read-only ("viewer") accounts can't change their password — the owner controls
+// it (see VIEWER_PASSWORD in api/_lib/db.js). Enforced here, not just by hiding
+// the button, so a direct API call is refused too.
 app.put("/api/auth/password", async (req, res) => {
+  if (isViewer(req)) {
+    return res.status(403).json({ error: "This is a read-only account and can't change its password." });
+  }
   const { currentPassword, newPassword } = req.body;
   const user = await get("SELECT * FROM users WHERE id = ?", [req.user.sub]);
   if (!bcrypt.compareSync(currentPassword || "", user.password_hash)) {
