@@ -33,7 +33,7 @@ export default function Login({ onLoggedIn }) {
               <path d="M4 19.5V5.6c0-.9.7-1.6 1.6-1.6h9.8c.9 0 1.6.7 1.6 1.6v13.9M4 19.5h13M4 19.5H2.5M17 19.5h1.5M8 7.5h5M8 10.5h5M8 13.5h5" strokeLinecap="round" />
             </svg>
           </div>
-          <h1 className="font-display text-2xl font-semibold text-paper tracking-tight">Narayana PG Rent Register</h1>
+          <h1 className="font-display text-2xl font-semibold text-paper tracking-tight">PG Rent Register</h1>
           <p className="text-paper/45 text-xs font-body mt-1.5">Sign in to open the ledger</p>
         </div>
 
