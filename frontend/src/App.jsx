@@ -148,36 +148,58 @@ function Ledger({ onLogout }) {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-5">
-        {err && (
-          <div className="bg-rust/10 border border-rust/30 text-rust text-sm font-body px-4 py-3 rounded-md">{err}</div>
-        )}
+      
+<main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-5">
+  {err && (
+    <div className="bg-rust/10 border border-rust/30 text-rust text-sm font-body px-4 py-3 rounded-md">
+      {err}
+    </div>
+  )}
 
-        <Dashboard data={summary} />
+  <Dashboard data={summary} />
 
-        <Filters
-          filters={filters}
-          setFilters={setFilters}
-          onAdd={() => setShowForm(true)}
-          onImport={() => setShowImport(true)}
-          rooms={rooms}
-          canWrite={canWrite}
-        />
+  <Filters
+    filters={filters}
+    setFilters={setFilters}
+    onAdd={() => setShowForm(true)}
+    onImport={() => setShowImport(true)}
+    rooms={rooms}
+    canWrite={canWrite}
+  />
 
-        <TenantTable
-          tenants={tenants}
-          loading={loading}
-          onPay={setPayTenant}
-          onEdit={setEditTenant}
-          onDelete={setDeleteTenant}
-          canWrite={canWrite}
-        />
+  <TenantTable
+    tenants={tenants}
+    loading={loading}
+    onPay={setPayTenant}
+    onEdit={setEditTenant}
+    onDelete={setDeleteTenant}
+    canWrite={canWrite}
+  />
 
-        <p className="text-paper/30 text-xs font-body text-center pt-2">
-          Rent cycles roll over automatically the day after each due date — a fresh pending entry appears while the
-          last cycle stays on record.
-        </p>
-      </main>
+  <p className="text-paper/30 text-xs font-body text-center pt-2">
+    Rent cycles roll over automatically the day after each due date —
+    a fresh pending entry appears while the last cycle stays on record.
+  </p>
+
+  {/* Footer */}
+  <footer className="border-t border-paper/10 pt-5 pb-2 text-center">
+    <span className="text-paper/50 text-xs sm:text-sm font-body">
+      Created by{" "}
+      <a
+        href="https://www.mothukuri-venkat.online/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-paper hover:text-white font-semibold transition-colors underline underline-offset-4"
+      >
+        VENKAT
+      </a>
+      {" "} | {" "}
+      <span className="far fa-copyright" aria-hidden="true"></span>
+      {" "}2025 All rights reserved.
+    </span>
+  </footer>
+</main>
+
 
       {showForm && <TenantFormModal onClose={() => setShowForm(false)} onSubmit={handleCreate} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} onDone={load} />}
