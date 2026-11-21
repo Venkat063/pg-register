@@ -195,7 +195,7 @@ function Ledger({ onLogout }) {
       </a>
       {" "} | {" "}
       <span className="far fa-copyright" aria-hidden="true"></span>
-      {" "}2025 All rights reserved.
+      {" "}2026 All rights reserved.
     </span>
   </footer>
 </main>
