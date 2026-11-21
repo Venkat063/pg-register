@@ -6,10 +6,12 @@ export default function Filters({ filters, setFilters, onAdd, rooms, canWrite = 
 
   return (
     <div className="space-y-2.5">
+      {/* Read-only accounts can't see or search phone numbers, so the hint
+          doesn't mention them. */}
       <input
         value={filters.search}
         onChange={set("search")}
-        placeholder="Search name, phone, room…"
+        placeholder={canWrite ? "Search name, phone, room…" : "Search name, room…"}
         className={fieldCls}
       />
 
