@@ -101,7 +101,11 @@ function TenantCard({ tenant, index, onPay, onEdit, onDelete, canWrite }) {
         <h3 className="truncate font-display text-sm sm:text-base font-semibold leading-tight text-ink-900">
           {tenant.name}
         </h3>
-        <p className="truncate font-body text-[11px] text-ink-700/55">{tenant.phone || "No phone added"}</p>
+        {/* Phone numbers are only shown to accounts that can edit. For read-only
+            accounts the server doesn't send them at all (see api/_lib/app.js). */}
+        {canWrite && (
+          <p className="truncate font-body text-[11px] text-ink-700/55">{tenant.phone || "No phone added"}</p>
+        )}
 
         <p className="mt-1 font-body text-base sm:text-lg font-bold text-sage">
           {fmt(tenant.rent_amount)}
