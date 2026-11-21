@@ -115,12 +115,11 @@ function Ledger({ onLogout }) {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h1 className="font-display text-lg sm:text-3xl font-semibold text-paper tracking-tight leading-tight">
-                PG Rent Register
+                Narayana PG Rent Register
               </h1>
               <p className="hidden sm:block text-paper/50 text-xs font-body mt-1">
                 A running ledger of every tenant's rent, dues and payment history
               </p>
-              
             </div>
             <div className="flex items-center gap-2 shrink-0 pt-0.5 sm:pt-0">
               <span className="hidden md:inline text-paper/60 text-xs font-body">{auth.getUsername()}</span>
@@ -129,12 +128,15 @@ function Ledger({ onLogout }) {
                   Read-only
                 </span>
               )}
-              <button
-                onClick={() => setShowPassword(true)}
-                className="text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded bg-paper/10 text-paper/70 hover:bg-paper/20 transition-colors whitespace-nowrap"
-              >
-                Password
-              </button>
+              {/* Read-only accounts can't change their password (the server refuses it too). */}
+              {canWrite && (
+                <button
+                  onClick={() => setShowPassword(true)}
+                  className="text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded bg-paper/10 text-paper/70 hover:bg-paper/20 transition-colors whitespace-nowrap"
+                >
+                  Password
+                </button>
+              )}
               <button
                 onClick={onLogout}
                 className="text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded bg-paper/10 text-paper/70 hover:bg-paper/20 transition-colors whitespace-nowrap"
@@ -146,62 +148,40 @@ function Ledger({ onLogout }) {
         </div>
       </header>
 
-      
-<main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-5">
-  {err && (
-    <div className="bg-rust/10 border border-rust/30 text-rust text-sm font-body px-4 py-3 rounded-md">
-      {err}
-    </div>
-  )}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-5">
+        {err && (
+          <div className="bg-rust/10 border border-rust/30 text-rust text-sm font-body px-4 py-3 rounded-md">{err}</div>
+        )}
 
-  <Dashboard data={summary} />
+        <Dashboard data={summary} />
 
-  <Filters
-    filters={filters}
-    setFilters={setFilters}
-    onAdd={() => setShowForm(true)}
-    onImport={() => setShowImport(true)}
-    rooms={rooms}
-    canWrite={canWrite}
-  />
+        <Filters
+          filters={filters}
+          setFilters={setFilters}
+          onAdd={() => setShowForm(true)}
+          onImport={() => setShowImport(true)}
+          rooms={rooms}
+          canWrite={canWrite}
+        />
 
-  <TenantTable
-    tenants={tenants}
-    loading={loading}
-    onPay={setPayTenant}
-    onEdit={setEditTenant}
-    onDelete={setDeleteTenant}
-    canWrite={canWrite}
-  />
+        <TenantTable
+          tenants={tenants}
+          loading={loading}
+          onPay={setPayTenant}
+          onEdit={setEditTenant}
+          onDelete={setDeleteTenant}
+          canWrite={canWrite}
+        />
 
-  <p className="text-paper/30 text-xs font-body text-center pt-2">
-    Rent cycles roll over automatically the day after each due date —
-    a fresh pending entry appears while the last cycle stays on record.
-  </p>
-
-  {/* Footer */}
-  <footer className="border-t border-paper/10 pt-5 pb-2 text-center">
-    <span className="text-paper/50 text-xs sm:text-sm font-body">
-      Created by{" "}
-      <a
-        href="https://www.mothukuri-venkat.online/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-paper hover:text-white font-semibold transition-colors underline underline-offset-4"
-      >
-        VENKAT
-      </a>
-      {" "} | {" "}
-      <span className="far fa-copyright" aria-hidden="true"></span>
-      {" "}2025 All rights reserved.
-    </span>
-  </footer>
-</main>
-
+        <p className="text-paper/30 text-xs font-body text-center pt-2">
+          Rent cycles roll over automatically the day after each due date — a fresh pending entry appears while the
+          last cycle stays on record.
+        </p>
+      </main>
 
       {showForm && <TenantFormModal onClose={() => setShowForm(false)} onSubmit={handleCreate} />}
       {showImport && <BulkImportModal onClose={() => setShowImport(false)} onDone={load} />}
-      {showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} onSubmit={handleChangePassword} />}
+      {canWrite && showPassword && <ChangePasswordModal onClose={() => setShowPassword(false)} onSubmit={handleChangePassword} />}
       {editTenant && (
         <TenantFormModal initial={editTenant} onClose={() => setEditTenant(null)} onSubmit={handleUpdate} />
       )}
