@@ -115,7 +115,7 @@ function Ledger({ onLogout }) {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h1 className="font-display text-lg sm:text-3xl font-semibold text-paper tracking-tight leading-tight">
-                Narayana PG Rent Register
+                PG Rent Register
               </h1>
               <p className="hidden sm:block text-paper/50 text-xs font-body mt-1">
                 A running ledger of every tenant's rent, dues and payment history
@@ -125,7 +125,7 @@ function Ledger({ onLogout }) {
               <span className="hidden md:inline text-paper/60 text-xs font-body">{auth.getUsername()}</span>
               {!canWrite && (
                 <span className="text-[11px] font-semibold px-2 py-1 rounded bg-brass/15 text-brass-light whitespace-nowrap">
-                  Read-only
+                  Viewers
                 </span>
               )}
               {/* Read-only accounts can't change their password (the server refuses it too). */}
