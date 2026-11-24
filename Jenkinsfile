@@ -1,139 +1,213 @@
-// CI/CD pipeline: GitHub -> Docker build -> smoke test -> Amazon ECR -> Amazon EKS
-//
-// Runs on a Jenkins server (an EC2 instance) that has Docker, the AWS CLI and
-// kubectl installed, and an IAM *instance role* allowing it to push to ECR and
-// talk to EKS. No AWS keys are stored in Jenkins or in this file.
-// Full setup steps: devops/DEVOPS_GUIDE.md
-
 pipeline {
-  agent any
+    agent any
 
-  options {
-    timestamps()
-    disableConcurrentBuilds()
-    timeout(time: 30, unit: 'MINUTES')
-    buildDiscarder(logRotator(numToKeepStr: '15'))
-  }
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
 
-  // Checks GitHub every ~5 minutes. (A webhook is faster but requires exposing
-  // Jenkins to the internet, so polling is the safer default.)
-  triggers { pollSCM('H/5 * * * *') }
+    environment {
+        DOCKER_REPO = 'venkat063/pgrent'
+        NEXUS_URL = 'http://127.0.0.1:8081/repository/pg-rent-raw'
+        K8S_NAMESPACE = 'pg-rent'
+    }
 
-  environment {
-    // ---- EDIT THESE FOUR ----------------------------------------------------
-    AWS_ACCOUNT   = '123456789012'   // your 12-digit AWS account id
-    AWS_REGION    = 'ap-south-1'     // Mumbai
-    EKS_CLUSTER   = 'pg-rent'
-    K8S_NAMESPACE = 'pg-rent'
-    // -------------------------------------------------------------------------
-    REGISTRY  = "${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    API_IMAGE = "${REGISTRY}/pg-rent/api"
-    WEB_IMAGE = "${REGISTRY}/pg-rent/web"
-  }
+    stages {
 
-  stages {
+        // STAGE 1: BUILD
+        stage('1. Build Application') {
+            steps {
+                checkout scm
 
-    stage('Checkout') {
-      steps {
-        checkout scm
-        script {
-          // Tag images with the git commit, so every deploy is traceable to code.
-          env.IMAGE_TAG = sh(script: 'git rev-parse --short=8 HEAD', returnStdout: true).trim()
-          echo "Building commit ${env.IMAGE_TAG}"
+                sh '''
+                    set -e
+
+                    echo "Building PG Rent Frontend"
+
+                    docker run --rm \
+                      --user "$(id -u):$(id -g)" \
+                      -e HOME=/tmp \
+                      -v "$WORKSPACE:/workspace" \
+                      -w /workspace/frontend \
+                      node:24-alpine sh -c \
+                      "npm ci --no-audit --no-fund || npm install --no-audit --no-fund; npm run build"
+
+                    echo "Validating API"
+
+                    docker run --rm \
+                      -v "$WORKSPACE:/workspace" \
+                      -w /workspace \
+                      node:24-alpine \
+                      node --check devops/api/server.js
+
+                    echo "Build completed"
+                '''
+
+                archiveArtifacts artifacts: 'frontend/dist/**',
+                                 fingerprint: true
+            }
         }
-      }
+
+        // STAGE 2: NEXUS ARTIFACT BACKUP
+        stage('2. Nexus Artifact Backup') {
+            steps {
+                sh '''
+                    set -e
+
+                    mkdir -p artifacts
+
+                    tar -czf artifacts/pg-rent-${BUILD_NUMBER}.tar.gz \
+                      frontend/dist \
+                      devops/api/server.js \
+                      devops/api/package.json \
+                      devops/api/Dockerfile \
+                      devops/web/Dockerfile \
+                      devops/web/nginx.conf
+                '''
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-creds',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        set -e
+
+                        ARCHIVE="pg-rent-${BUILD_NUMBER}.tar.gz"
+
+                        curl --fail --show-error \
+                          --user "$NEXUS_USER:$NEXUS_PASSWORD" \
+                          --upload-file "artifacts/$ARCHIVE" \
+                          "$NEXUS_URL/$BUILD_NUMBER/$ARCHIVE"
+
+                        echo "Artifact uploaded to Nexus"
+                    '''
+                }
+            }
+        }
+
+        // STAGE 3: SONARQUBE + QUALITY GATE
+        stage('3. SonarQube Code Quality') {
+            steps {
+                script {
+                    def scannerHome = tool 'SonarScanner'
+
+                    withSonarQubeEnv('SonarQube') {
+                        sh """
+                            ${scannerHome}/bin/sonar-scanner \
+                              -Dsonar.projectKey=pg-rent \
+                              -Dsonar.sources=frontend,devops/api \
+                              -Dsonar.exclusions=**/node_modules/**,**/dist/** \
+                              -Dsonar.token=\$SONAR_AUTH_TOKEN
+                        """
+                    }
+
+                    timeout(time: 5, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: true
+                    }
+                }
+            }
+        }
+
+        // STAGE 4: DOCKER BUILD AND PUSH
+        stage('4. Docker Build and Push') {
+            steps {
+                script {
+                    env.API_IMAGE = "${env.DOCKER_REPO}:api-${env.BUILD_NUMBER}"
+                    env.WEB_IMAGE = "${env.DOCKER_REPO}:web-${env.BUILD_NUMBER}"
+
+                    sh """
+                        docker build \
+                          -f devops/api/Dockerfile \
+                          -t ${env.API_IMAGE} .
+
+                        docker build \
+                          -f devops/web/Dockerfile \
+                          -t ${env.WEB_IMAGE} .
+                    """
+
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: 'dockerhub-creds',
+                            usernameVariable: 'DOCKER_USER',
+                            passwordVariable: 'DOCKER_PASS'
+                        )
+                    ]) {
+                        sh '''
+                            set -e
+
+                            echo "$DOCKER_PASS" | docker login \
+                              -u "$DOCKER_USER" --password-stdin
+
+                            docker push "$API_IMAGE"
+                            docker push "$WEB_IMAGE"
+
+                            docker logout
+                        '''
+                    }
+                }
+            }
+        }
+
+        // STAGE 5: KUBERNETES DEPLOYMENT
+        stage('5. Kubernetes Deployment') {
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Preparing Kubernetes manifests"
+
+                    mkdir -p .rendered
+
+                    sed \
+                      -e "s|__API_IMAGE__|$API_IMAGE|g" \
+                      -e "s|__WEB_IMAGE__|$WEB_IMAGE|g" \
+                      devops/k8s/jenkins/app.yaml \
+                      > .rendered/app.yaml
+
+                    kubectl apply \
+                      -f devops/k8s/jenkins/namespace.yaml
+
+                    kubectl apply \
+                      -f .rendered/app.yaml
+
+                    echo "Waiting for API deployment"
+
+                    kubectl rollout status \
+                      deployment/pg-rent-api \
+                      -n "$K8S_NAMESPACE" \
+                      --timeout=180s
+
+                    echo "Waiting for Web deployment"
+
+                    kubectl rollout status \
+                      deployment/pg-rent-web \
+                      -n "$K8S_NAMESPACE" \
+                      --timeout=180s
+
+                    echo "Kubernetes deployment completed"
+
+                    kubectl get pods -n "$K8S_NAMESPACE"
+
+                    kubectl get services -n "$K8S_NAMESPACE"
+                '''
+            }
+        }
     }
 
-    // The web image build also compiles the React app, so a compile error
-    // anywhere in the frontend fails the pipeline here.
-    stage('Build images') {
-      steps {
-        sh '''
-          docker build -f devops/api/Dockerfile -t $API_IMAGE:$IMAGE_TAG -t $API_IMAGE:latest .
-          docker build -f devops/web/Dockerfile -t $WEB_IMAGE:$IMAGE_TAG -t $WEB_IMAGE:latest .
-        '''
-      }
-    }
+    post {
+        success {
+            echo 'PG Rent CI/CD Pipeline Completed Successfully!'
+        }
 
-    // Start the freshly built API container and make sure it really boots and
-    // answers its health check, before anything is pushed or deployed.
-    stage('Smoke test') {
-      steps {
-        sh '''
-          set -e
-          cid=$(docker run -d --rm \
-                  -e JWT_SECRET=ci-only \
-                  -e TURSO_DATABASE_URL=file:/tmp/ci.db \
-                  $API_IMAGE:$IMAGE_TAG)
-          trap "docker stop $cid >/dev/null 2>&1 || true" EXIT
-
-          for i in $(seq 1 20); do
-            if docker exec $cid wget -qO- http://127.0.0.1:4000/api/health | grep -q '"ok":true'; then
-              echo "API is healthy"
-              exit 0
-            fi
-            sleep 2
-          done
-
-          echo "API did not become healthy in time"
-          docker logs $cid
-          exit 1
-        '''
-      }
-    }
-
-    // Only the main branch is published and deployed.
-    stage('Push to ECR') {
-      when { expression { return env.GIT_BRANCH in ['origin/main', 'main'] } }
-      steps {
-        sh '''
-          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY
-          docker push $API_IMAGE:$IMAGE_TAG
-          docker push $API_IMAGE:latest
-          docker push $WEB_IMAGE:$IMAGE_TAG
-          docker push $WEB_IMAGE:latest
-        '''
-      }
-    }
-
-    stage('Deploy to EKS') {
-      when { expression { return env.GIT_BRANCH in ['origin/main', 'main'] } }
-      steps {
-        sh '''
-          set -e
-          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER
-
-          # Fill the __REGISTRY__ / __TAG__ placeholders in the manifests.
-          rm -rf .rendered && mkdir .rendered
-          for f in devops/k8s/*.yaml; do
-            sed -e "s|__REGISTRY__|$REGISTRY|g" -e "s|__TAG__|$IMAGE_TAG|g" "$f" > ".rendered/$(basename "$f")"
-          done
-
-          kubectl apply -f .rendered/
-          kubectl -n $K8S_NAMESPACE rollout status deployment/api --timeout=180s
-          kubectl -n $K8S_NAMESPACE rollout status deployment/web --timeout=180s
-          kubectl -n $K8S_NAMESPACE get pods,svc
-        '''
-      }
-      post {
-        // If the new version never becomes healthy, go back to the previous one.
         failure {
-          sh '''
-            kubectl -n $K8S_NAMESPACE rollout undo deployment/api || true
-            kubectl -n $K8S_NAMESPACE rollout undo deployment/web || true
-          '''
+            echo 'PG Rent CI/CD Pipeline Failed. Check the failed stage logs.'
         }
-      }
-    }
-  }
 
-  post {
-    success { echo "Deployed ${env.IMAGE_TAG} successfully." }
-    failure { echo "Pipeline failed — check the stage logs above." }
-    always {
-      sh 'docker logout $REGISTRY || true'
-      sh 'docker image prune -f || true'
-      deleteDir()
+        always {
+            echo "Build Number: ${BUILD_NUMBER}"
+        }
     }
-  }
 }
