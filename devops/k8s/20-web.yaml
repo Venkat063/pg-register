@@ -1,0 +1,83 @@
+# nginx: serves the React app and proxies /api to the API service.
+# This is the only thing exposed to the internet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: pg-rent
+  labels:
+    app: pg-rent
+    component: web
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: pg-rent
+      component: web
+  template:
+    metadata:
+      labels:
+        app: pg-rent
+        component: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101       # the "nginx" user in nginx-unprivileged
+        runAsGroup: 101
+      containers:
+        - name: web
+          image: __REGISTRY__/pg-rent/web:__TAG__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: pg-rent
+  labels:
+    app: pg-rent
+    component: web
+  annotations:
+    # On EKS this provisions an AWS Network Load Balancer with a public address.
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  selector:
+    app: pg-rent
+    component: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

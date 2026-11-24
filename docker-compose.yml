@@ -1,0 +1,32 @@
+# Run the whole app locally:   docker compose up --build
+# Then open http://localhost:8080
+services:
+  api:
+    build:
+      context: .
+      dockerfile: devops/api/Dockerfile
+    environment:
+      PORT: "4000"
+      JWT_SECRET: ${JWT_SECRET:-local-dev-only-change-me}
+      # By default this uses a throw-away SQLite file in the "pgdata" volume.
+      # To use your real Turso database instead, put its URL and token in .env
+      TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:-file:/data/pg_rent.db}
+      TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
+      VIEWER_PASSWORD: ${VIEWER_PASSWORD:-}
+    volumes:
+      - pgdata:/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: devops/web/Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
