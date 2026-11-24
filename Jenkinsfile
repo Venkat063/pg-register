@@ -100,7 +100,7 @@ pipeline {
                               -Dsonar.projectKey=pg-rent \
                               -Dsonar.sources=frontend,devops/api \
                               -Dsonar.exclusions=**/node_modules/**,**/dist/** \
-                              -Dsonar.token=\$SONAR_AUTH_TOKEN
+                              -Dsonar.login=\$SONAR_AUTH_TOKEN
                         """
                     }
 
