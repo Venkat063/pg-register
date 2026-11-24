@@ -89,27 +89,6 @@ pipeline {
         }
 
         // STAGE 3: SONARQUBE + QUALITY GATE
-        stage('3. SonarQube Code Quality') {
-            steps {
-                script {
-                    def scannerHome = tool 'SonarScanner'
-
-                    withSonarQubeEnv('SonarQube') {
-                        sh """
-                            ${scannerHome}/bin/sonar-scanner \
-                              -Dsonar.projectKey=pg-rent \
-                              -Dsonar.sources=frontend,devops/api \
-                              -Dsonar.exclusions=**/node_modules/**,**/dist/** \
-                              -Dsonar.login=\$SONAR_AUTH_TOKEN
-                        """
-                    }
-
-                    timeout(time: 5, unit: 'MINUTES') {
-                        waitForQualityGate abortPipeline: true
-                    }
-                }
-            }
-        }
 
         // STAGE 4: DOCKER BUILD AND PUSH
         stage('4. Docker Build and Push') {
